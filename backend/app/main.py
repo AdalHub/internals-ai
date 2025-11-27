@@ -79,7 +79,7 @@ def getItem(itemId: int):
 @my_app.get("/user/{userId}")
 def getUser(userId: int):
     if userId not in users:
-        raise HTTPException(status_code=404, details= f" user id number could not be retrieved because {userId} does not exists friend")
+        raise HTTPException(status_code=404, detail= f" user id number could not be retrieved because {userId} does not exists friend")
     else:
         return users[userId]
 
@@ -96,7 +96,7 @@ def createUser(userId:int, user: User):
 @my_app.put("/users/{userId}")
 def updateUser(userId: int, user: UpdateUser):
     if userId not in users:
-        raise HTTPException(status_code=404, details="{userId} does not exists friend")
+        raise HTTPException(status_code=404, detail="{userId} does not exists friend")
     else:
         currentUser = users[userId]
         if user.username != None:
@@ -106,3 +106,20 @@ def updateUser(userId: int, user: UpdateUser):
         if user.access_level != None:
             currentUser["access_level"]= user.access_level
         return currentUser
+#placeholder for deleting a user
+@my_app.delete("/user/{userId}")
+def deleteUser(userId: int):
+    if userId not in users:
+        raise HTTPException(status_code=404, detail="{userId} does not exists friend")
+    deletedUser = users.pop(userId)
+    return {"responce": f"{deletedUser} has been removed friend!"}
+
+#placeholder searching by username
+@my_app.get("/user_search")
+def searchByName(name: Optional[str]=None):
+    if not name:
+        raise HTTPException(status_code=404,  detail="no name given friend")
+    for user in users.values():
+        if user["username"]== name:
+            return user
+    raise HTTPException(status_code=404)
