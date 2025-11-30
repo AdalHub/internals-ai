@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, status
+from fastapi import APIRouter, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from pymongo.mongo_client import MongoClient    
@@ -11,7 +11,10 @@ import os
 from bson.objectid import ObjectId
 from database import db
 
-router = FastAPI()
+router = APIRouter(
+    prefix="/user",
+    tags=['users']
+)
 
 
 
@@ -41,7 +44,7 @@ class User_Structure(BaseModel):
     date: str=None
 
 
-@router.post("/users", response_model=User_Insert_Responce)
+@router.post("/", response_model=User_Insert_Responce)
 async def create_user(user_obj:User_Structure):
     try:
         user_doc= user_obj.model_dump()

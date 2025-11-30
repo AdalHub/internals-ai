@@ -12,5 +12,5 @@ uri =f"mongodb+srv://{mongodb_username}:{mongodb_password}@internal-ai.wmzdete.m
 
 #creates a new client and connect to the server
 client = MongoClient(uri, server_api=ServerApi('1'))
-client = MongoClient(os.getenv("MONGODB_URI"))
+
 db = client["internals_ai_db"]

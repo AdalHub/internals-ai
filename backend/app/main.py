@@ -18,7 +18,7 @@ my_app.add_middleware(
 
 
 #we add necessary routers
-my_app.include_router(users)
+my_app.include_router(users.router)
 
 
 
