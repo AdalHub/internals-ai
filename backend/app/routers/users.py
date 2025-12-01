@@ -1,182 +1,94 @@
-from fastapi import APIRouter, HTTPException, status
-from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
-from pymongo.mongo_client import MongoClient    
-from pymongo.server_api import ServerApi    
+# routers/users.py
+from fastapi import APIRouter, HTTPException, status, Depends
+from pydantic import BaseModel, EmailStr
 from pymongo.errors import PyMongoError, DuplicateKeyError, WriteError
 from typing import Optional
 from datetime import datetime
-import pprint
-import os
 from bson.objectid import ObjectId
 from database import db
+from auth import get_current_user, get_current_active_user
 
 router = APIRouter(
     prefix="/user",
     tags=['users']
 )
 
+# Creating users collection
+users_collection = db.users
 
-
-#creating users collection inside internals_ai_db if not already created
-users_collection= db.users
-
-
-################################# USER ENDPOINTS #################################
-
-
-
-
-'''//////////////////////////// USER CREATION ////////////////////////////'''
-
-
-class User_Insert_Responce(BaseModel):
-    status:bool
-    message:str
-    inserted_id: str=None
-
-class User_Structure(BaseModel):
-    username:str
-    fisrt_name:str
-    last_name:str
-    email:str
-    auth_level:str
-    date: str=None
-
-
-@router.post("/", response_model=User_Insert_Responce)
-async def create_user(user_obj:User_Structure):
-    try:
-        user_doc= user_obj.model_dump()
-        #before we insert the user object we must add the date from our backend
-        #this is to for simplicity preventing any erros with the date formatting or client-side manipulation
-        user_doc['date']= datetime.now()
-        #insert new user
-        result= users_collection.insert_one(user_doc)
-        #create a printer for logging
-        printer= pprint.PrettyPrinter()
-        printer.pprint(result.inserted_id)
-        return User_Insert_Responce(
-            status= True,
-            message="Sucessfully inserted new user friend!",
-            inserted_id=str(result.inserted_id)
-        )
-    except DuplicateKeyError as e:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail={
-                "error_type": "DuplicateKeyError",
-                "message": "A document with this key already exists",
-                "details": str(e)
-            }
-        )
-    
-    except WriteError as e:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail={
-                "error_type": "WriteError",
-                "message": "Document validation failed",
-                "details": str(e)
-            }
-        )
-    
-    except PyMongoError as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail={
-                "error_type": "PyMongoError",
-                "message": "Database error occurred",
-                "details": str(e)
-            }
-        )
-    
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail={
-                "error_type": "UnexpectedError",
-                "message": "An unexpected error occurred",
-                "details": str(e)
-            }
-        )
-
-
-
-
-'''//////////////////////////// USER UPDATING ////////////////////////////'''
-
+# Models
 class User_Update_Response(BaseModel):
-    status:bool
-    message:str
+    status: bool
+    message: str
     modified_count: int
 
 class UpdateUser(BaseModel):
-    username:Optional[str]= None
-    first_name:Optional[str]= None
-    last_name:Optional[str]= None
-    email:Optional[str]= None
-    auth_level:Optional[str]= None
-    date: Optional[str]= None
+    username: Optional[str] = None
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
+    email: Optional[EmailStr] = None
 
-@router.put('/{person_id}}', response_model=User_Update_Response)
-async def update_user(person_id ,user_obj: UpdateUser):
+# Protected endpoints (require authentication)
+@router.get("/me")
+async def get_current_user_profile(current_user: dict = Depends(get_current_user)):
+    """Get current authenticated user's profile"""
+    current_user['_id'] = str(current_user['_id'])
+    current_user.pop('password', None)  # Never return password
+    return current_user
+
+@router.put("/me", response_model=User_Update_Response)
+async def update_current_user_profile(
+    user_obj: UpdateUser,
+    current_user: dict = Depends(get_current_user)
+):
+    """Update current authenticated user's profile"""
     try:
-        _id= ObjectId(person_id)
-
-
-        user_doc_updated= user_obj.model_dump(exclude_none= True)
-        update_items = {k:v for k,v in user_doc_updated.items() if v!= ""}
-
-        #we check if there are any fields to actually update or we raise an error
+        user_doc_updated = user_obj.model_dump(exclude_none=True)
+        update_items = {k: v for k, v in user_doc_updated.items() if v != ""}
+        
         if not update_items:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail = {
+                detail={
                     "error_type": "ValidationError",
-                    "message": "No fields to update friend",
-                    "details": "You must provide atleast one field to update friend"
+                    "message": "No fields to update",
+                    "details": "You must provide at least one field to update"
                 }
             )
-
-        #we need to update by username, so we must first obtain their Object
-        result= users_collection.update_one({"_id":_id}, {"$set": update_items})
-        #verify the user document was found
-        if result.modified_count==0:
+        
+        # Add updated_at timestamp
+        update_items['updated_at'] = datetime.now()
+        
+        # Update user
+        result = users_collection.update_one(
+            {"_id": current_user['_id']},
+            {"$set": update_items}
+        )
+        
+        if result.modified_count == 0:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail={
                     "error_type": "NotFound",
-                    "message": "User not found",
-                    "details": f"No user found with ID: {person_id}"
+                    "message": "User not found"
                 }
             )
-        #return successful response
+        
         return User_Update_Response(
-            status= True,
-            message=f"Sucessfully updated {person_id} friend!",
+            status=True,
+            message="Successfully updated your profile!",
             modified_count=result.modified_count
         )
+        
     except DuplicateKeyError as e:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail={
                 "error_type": "DuplicateKeyError",
-                "message": "A document with this key already exists",
+                "message": "Email or username already exists",
                 "details": str(e)
             }
         )
-    
-    except WriteError as e:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail={
-                "error_type": "WriteError",
-                "message": "Document validation failed",
-                "details": str(e)
-            }
-        )
-    
     except PyMongoError as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -186,19 +98,78 @@ async def update_user(person_id ,user_obj: UpdateUser):
                 "details": str(e)
             }
         )
+
+@router.delete("/me")
+async def delete_current_user_account(current_user: dict = Depends(get_current_user)):
+    """Delete current authenticated user's account (soft delete)"""
+    try:
+        # Soft delete - just mark as inactive
+        result = users_collection.update_one(
+            {"_id": current_user['_id']},
+            {"$set": {"is_active": False, "deleted_at": datetime.utcnow()}}
+        )
+        
+        return {
+            "success": True,
+            "message": "Account deactivated successfully"
+        }
+        
+    except PyMongoError as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={"error_type": "PyMongoError", "message": str(e)}
+        )
+
+# Admin-only endpoints (require admin authentication)
+@router.get("/{user_id}")
+async def get_user_by_id(
+    user_id: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """Get user by ID (admin only)"""
+    # Check if current user is admin
+    if current_user.get('auth_level') != 'admin':
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not authorized to view other users"
+        )
     
+    try:
+        user = users_collection.find_one({"_id": ObjectId(user_id)})
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="User not found"
+            )
+        
+        user['_id'] = str(user['_id'])
+        user.pop('password', None)
+        return user
+        
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail={
-                "error_type": "UnexpectedError",
-                "message": "An unexpected error occurred",
-                "details": str(e)
-            }
+            detail=str(e)
         )
 
-
-
-
-'''//////////////////////////// USER DELETE ////////////////////////////'''
-
+@router.get("/")
+async def get_all_users(current_user: dict = Depends(get_current_user)):
+    """Get all users (admin only)"""
+    if current_user.get('auth_level') != 'admin':
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not authorized to view all users"
+        )
+    
+    try:
+        users = list(users_collection.find({}))
+        for user in users:
+            user['_id'] = str(user['_id'])
+            user.pop('password', None)
+        return {"users": users, "count": len(users)}
+        
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e)
+        )

@@ -14,3 +14,14 @@ uri =f"mongodb+srv://{mongodb_username}:{mongodb_password}@internal-ai.wmzdete.m
 client = MongoClient(uri, server_api=ServerApi('1'))
 
 db = client["internals_ai_db"]
+
+#now we setup indexing once for performance and security
+def setup_indexing():
+    try:
+        db['users'].create_index("username", unique= True)
+        db['users'].create_index("email", unique= True)
+
+    except Exception as e:
+        print(f"Indexing issue raised: {e}")
+
+setup_indexing()
